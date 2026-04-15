@@ -41,3 +41,6 @@ backend/test_*.py
 
 # 截图等非代码文件
 *.png
+
+# Git worktrees
+.worktrees/
