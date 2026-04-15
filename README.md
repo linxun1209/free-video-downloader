@@ -146,7 +146,7 @@ FastAPI
 cd backend
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python3.11 main.py
 ```
 
 后端默认地址：
@@ -166,7 +166,7 @@ python main.py
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 0.0.0.0 
 ```
 
 前端默认地址：
