@@ -17,6 +17,14 @@ def _find_ffmpeg_path() -> Optional[str]:
         return None
 
 
+def _is_bilibili_url(url: str) -> bool:
+    return "bilibili.com" in url or "b23.tv" in url
+
+
+def _strip_ansi(text: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
 class VideoDownloader:
     """yt-dlp 封装层，提供视频解析、下载、直链获取能力"""
 
@@ -51,16 +59,50 @@ class VideoDownloader:
             return f"{hours}:{minutes:02d}:{secs:02d}"
         return f"{minutes}:{secs:02d}"
 
-    def parse_video(self, url: str) -> dict:
-        """解析视频信息，不下载文件"""
-        ydl_opts = {
+    def _build_ydl_opts(self, url: str, *, format_id: Optional[str] = None, download: bool = False) -> dict:
+        opts = {
             "quiet": True,
             "no_warnings": True,
-            "extract_flat": False,
             "noplaylist": True,
         }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+
+        if not download:
+            opts["extract_flat"] = False
+
+        if format_id is not None:
+            opts["format"] = format_id
+
+        if _is_bilibili_url(url):
+            opts["http_headers"] = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/133.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://www.bilibili.com/",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            }
+
+        return opts
+
+    @staticmethod
+    def _rewrite_error(url: str, error: Exception) -> ValueError:
+        message = _strip_ansi(str(error)).strip()
+        if _is_bilibili_url(url) and "HTTP Error 412" in message:
+            return ValueError(
+                "B 站返回了 412 风控校验，当前服务器请求被拦截。"
+                "请稍后重试；如果持续失败，需要为服务端补充可用的 B 站 cookies。"
+            )
+        return ValueError(message or "解析失败")
+
+    def parse_video(self, url: str) -> dict:
+        """解析视频信息，不下载文件"""
+        ydl_opts = self._build_ydl_opts(url)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise self._rewrite_error(url, e) from e
 
         if not info:
             raise ValueError("无法解析该链接")
@@ -153,20 +195,18 @@ class VideoDownloader:
         if not self.has_ffmpeg and "+" in format_id:
             format_id = "best"
 
-        ydl_opts = {
-            "format": format_id,
-            "outtmpl": os.path.join(self.DOWNLOAD_DIR, "%(title)s.%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-        }
+        ydl_opts = self._build_ydl_opts(url, format_id=format_id, download=True)
+        ydl_opts["outtmpl"] = os.path.join(self.DOWNLOAD_DIR, "%(title)s.%(ext)s")
 
         if self.has_ffmpeg:
             ydl_opts["ffmpeg_location"] = self.ffmpeg_path
             ydl_opts["merge_output_format"] = "mp4"
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except Exception as e:
+            raise self._rewrite_error(url, e) from e
 
         if not info:
             raise ValueError("下载失败")
@@ -197,15 +237,12 @@ class VideoDownloader:
 
     def get_direct_url(self, url: str, format_id: str) -> dict:
         """获取视频直链"""
-        ydl_opts = {
-            "format": format_id,
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        ydl_opts = self._build_ydl_opts(url, format_id=format_id)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise self._rewrite_error(url, e) from e
 
         if not info:
             raise ValueError("无法获取直链")
