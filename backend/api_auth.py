@@ -11,7 +11,7 @@ from auth import (
     validate_password,
     verify_password,
 )
-from database import create_user, get_user_by_email
+from database import create_user, get_user_by_email, update_user_profile
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -24,6 +24,20 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class UpdateProfileRequest(BaseModel):
+    nickname: str | None = None
+    phone: str | None = None
+    bio: str | None = None
+
+
+def _to_profile_text(value: str | None) -> str:
+    return value or ""
+
+
+def _normalize_profile_text(value: str | None) -> str:
+    return _to_profile_text(value).strip()
 
 
 def _build_user_response(user: dict) -> dict:
@@ -40,6 +54,9 @@ def _build_user_response(user: dict) -> dict:
     return {
         "id": user["id"],
         "email": user["email"],
+        "nickname": _to_profile_text(user.get("nickname")),
+        "phone": _to_profile_text(user.get("phone")),
+        "bio": _to_profile_text(user.get("bio")),
         "is_vip": is_vip,
         "vip_expire_at": vip_expire_at,
     }
@@ -65,7 +82,7 @@ async def register(req: RegisterRequest):
         "success": True,
         "data": {
             "token": token,
-            "user": {"id": user["id"], "email": req.email, "is_vip": False, "vip_expire_at": None},
+            "user": _build_user_response(user),
         },
     }
 
@@ -94,4 +111,39 @@ async def get_me(user: dict = Depends(get_current_user)):
     return {
         "success": True,
         "data": _build_user_response(user),
+    }
+
+
+def _validate_profile_lengths(nickname: str, phone: str, bio: str) -> None:
+    if len(nickname) > 30:
+        raise HTTPException(status_code=400, detail="昵称长度不能超过 30 个字符")
+    if len(phone) > 20:
+        raise HTTPException(status_code=400, detail="手机号长度不能超过 20 个字符")
+    if len(bio) > 200:
+        raise HTTPException(status_code=400, detail="个人简介长度不能超过 200 个字符")
+
+
+@router.get("/profile")
+async def get_profile(user: dict = Depends(get_current_user)):
+    return {
+        "success": True,
+        "data": _build_user_response(user),
+    }
+
+
+@router.put("/profile")
+async def put_profile(req: UpdateProfileRequest, user: dict = Depends(get_current_user)):
+    nickname = _normalize_profile_text(req.nickname if req.nickname is not None else user.get("nickname"))
+    phone = _normalize_profile_text(req.phone if req.phone is not None else user.get("phone"))
+    bio = _normalize_profile_text(req.bio if req.bio is not None else user.get("bio"))
+
+    _validate_profile_lengths(nickname, phone, bio)
+
+    updated_user = update_user_profile(user["id"], nickname, phone, bio)
+    if not updated_user:
+        raise HTTPException(status_code=401, detail="用户不存在")
+
+    return {
+        "success": True,
+        "data": _build_user_response(updated_user),
     }

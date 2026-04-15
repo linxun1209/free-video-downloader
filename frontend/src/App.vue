@@ -6,6 +6,7 @@
       @register="showAuthModal('register')"
       @logout="handleLogout"
       @open-vip="handleOpenVip"
+      @open-profile="profileModalVisible = true"
     />
     <main class="flex-1">
       <HeroSection
@@ -77,6 +78,13 @@
       @close="authModalVisible = false"
       @success="handleAuthSuccess"
     />
+
+    <ProfileModal
+      :visible="profileModalVisible"
+      :user="currentUser"
+      @close="profileModalVisible = false"
+      @success="handleProfileSuccess"
+    />
   </div>
 </template>
 
@@ -93,6 +101,7 @@ import PricingSection from './components/PricingSection.vue'
 import PlatformSection from './components/PlatformSection.vue'
 import AppFooter from './components/AppFooter.vue'
 import AuthModal from './components/AuthModal.vue'
+import ProfileModal from './components/ProfileModal.vue'
 import { parseVideo, downloadViaServer } from './api/video.js'
 import { getSavedUser, fetchMe, logout as logoutApi, isLoggedIn } from './api/auth.js'
 import { createCheckoutSession } from './api/payment.js'
@@ -125,6 +134,7 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', onKeyDown) })
 const currentUser = ref(null)
 const authModalVisible = ref(false)
 const authModalMode = ref('login')
+const profileModalVisible = ref(false)
 
 function showAuthModal(mode = 'login') {
   authModalMode.value = mode
@@ -132,6 +142,10 @@ function showAuthModal(mode = 'login') {
 }
 
 function handleAuthSuccess(user) {
+  currentUser.value = user
+}
+
+function handleProfileSuccess(user) {
   currentUser.value = user
 }
 
