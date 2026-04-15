@@ -35,6 +35,9 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
+                nickname TEXT,
+                phone TEXT,
+                bio TEXT,
                 is_vip INTEGER DEFAULT 0,
                 vip_expire_at TEXT,
                 daily_summary_count INTEGER DEFAULT 0,
@@ -64,6 +67,16 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no);
             CREATE INDEX IF NOT EXISTS idx_orders_stripe_session_id ON orders(stripe_session_id);
         """)
+        _ensure_user_profile_columns(conn)
+
+
+def _ensure_user_profile_columns(conn: sqlite3.Connection) -> None:
+    """兼容旧库：确保 users 表存在资料字段。"""
+    rows = conn.execute("PRAGMA table_info(users)").fetchall()
+    existing_columns = {row["name"] for row in rows}
+    for column in ("nickname", "phone", "bio"):
+        if column not in existing_columns:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
 
 
 FREE_DAILY_SUMMARY_LIMIT = 3
@@ -88,6 +101,33 @@ def create_user(email: str, password_hash: str) -> dict:
             (email, password_hash),
         )
         return {"id": cursor.lastrowid, "email": email}
+
+
+def _normalize_profile_field(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip()
+
+
+def update_user_profile(user_id: int, nickname: str | None, phone: str | None, bio: str | None) -> dict | None:
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE users
+            SET nickname = ?, phone = ?, bio = ?, updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (
+                _normalize_profile_field(nickname),
+                _normalize_profile_field(phone),
+                _normalize_profile_field(bio),
+                user_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def check_and_increment_summary(user_id: int) -> tuple[bool, int]:

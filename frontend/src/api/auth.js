@@ -57,6 +57,22 @@ export async function fetchMe() {
   return user
 }
 
+export async function fetchProfile() {
+  const res = await axios.get('/api/auth/profile', { headers: authHeaders() })
+  const user = res.data.data
+  saveUser(user)
+  return user
+}
+
+export async function updateProfile(payload) {
+  const res = await axios.put('/api/auth/profile', payload, {
+    headers: authHeaders(),
+  })
+  const user = res.data.data
+  saveUser(user)
+  return user
+}
+
 export function logout() {
   removeToken()
 }
