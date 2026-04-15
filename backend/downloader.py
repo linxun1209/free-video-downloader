@@ -25,6 +25,42 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
+def _is_douyin_url(url: str) -> bool:
+    return any(domain in url for domain in ("douyin.com", "iesdouyin.com"))
+
+
+def build_common_ydl_opts(url: str, *, format_id: Optional[str] = None, download: bool = False) -> dict:
+    """构建所有 yt-dlp 调用共享的平台相关配置。"""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+    }
+
+    if not download:
+        opts["extract_flat"] = False
+
+    if format_id is not None:
+        opts["format"] = format_id
+
+    cookiefile = os.getenv("YTDLP_COOKIEFILE", "").strip()
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+
+    if _is_bilibili_url(url):
+        opts["http_headers"] = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/133.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://www.bilibili.com/",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+
+    return opts
+
+
 class VideoDownloader:
     """yt-dlp 封装层，提供视频解析、下载、直链获取能力"""
 
@@ -59,31 +95,16 @@ class VideoDownloader:
             return f"{hours}:{minutes:02d}:{secs:02d}"
         return f"{minutes}:{secs:02d}"
 
+    @staticmethod
+    def _build_format_warning(platform: str, formats: list) -> str:
+        if formats:
+            return ""
+        if "bili" in platform.lower():
+            return "当前视频没有可用下载格式，可能是 B 站风控、登录限制，或该清晰度信息未成功解析。"
+        return "当前视频没有可用下载格式，可能是平台限制、风控校验，或解析结果不完整。"
+
     def _build_ydl_opts(self, url: str, *, format_id: Optional[str] = None, download: bool = False) -> dict:
-        opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-        }
-
-        if not download:
-            opts["extract_flat"] = False
-
-        if format_id is not None:
-            opts["format"] = format_id
-
-        if _is_bilibili_url(url):
-            opts["http_headers"] = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/133.0.0.0 Safari/537.36"
-                ),
-                "Referer": "https://www.bilibili.com/",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            }
-
-        return opts
+        return build_common_ydl_opts(url, format_id=format_id, download=download)
 
     @staticmethod
     def _rewrite_error(url: str, error: Exception) -> ValueError:
@@ -92,6 +113,11 @@ class VideoDownloader:
             return ValueError(
                 "B 站返回了 412 风控校验，当前服务器请求被拦截。"
                 "请稍后重试；如果持续失败，需要为服务端补充可用的 B 站 cookies。"
+            )
+        if _is_douyin_url(url) and "Fresh cookies" in message:
+            return ValueError(
+                "抖音当前要求提供新鲜 cookies 才能继续解析。"
+                "请在服务端环境变量中设置 YTDLP_COOKIEFILE，指向可用的抖音 cookies.txt 文件后重试。"
             )
         return ValueError(message or "解析失败")
 
@@ -109,6 +135,7 @@ class VideoDownloader:
 
         formats = self._extract_formats(info)
         platform = info.get("extractor", info.get("extractor_key", "Unknown"))
+        format_warning = self._build_format_warning(platform, formats)
 
         return {
             "id": info.get("id", ""),
@@ -122,6 +149,8 @@ class VideoDownloader:
             "upload_date": info.get("upload_date", ""),
             "description": (info.get("description") or "")[:200],
             "formats": formats,
+            "has_downloadable_formats": bool(formats),
+            "format_warning": format_warning,
             "subtitles": list(info.get("subtitles", {}).keys()),
             "automatic_captions": list(info.get("automatic_captions", {}).keys())[:5],
         }

@@ -9,6 +9,7 @@ from typing import Optional
 import httpx
 import yt_dlp
 from openai import OpenAI
+from downloader import build_common_ydl_opts, VideoDownloader
 
 
 def _is_bilibili_url(url: str) -> bool:
@@ -152,17 +153,17 @@ class SubtitleExtractor:
         return m.group(1) if m else None
 
     def _get_video_info(self, url: str) -> dict:
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-            "extract_flat": False,
+        ydl_opts = build_common_ydl_opts(url)
+        ydl_opts.update({
             "writesubtitles": True,
             "writeautomaticsub": True,
             "skip_download": True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        })
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise VideoDownloader._rewrite_error(url, e) from e
         if not info:
             raise ValueError("无法解析该视频链接")
         return info
@@ -211,19 +212,20 @@ class SubtitleExtractor:
     def _download_and_parse(self, url: str, lang: str, sub_type: str) -> list[dict]:
         """通过 yt-dlp 下载字幕文件并解析为分段列表"""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "noplaylist": True,
+            ydl_opts = build_common_ydl_opts(url)
+            ydl_opts.update({
                 "skip_download": True,
                 "writesubtitles": sub_type == "manual",
                 "writeautomaticsub": sub_type == "auto",
                 "subtitleslangs": [lang],
                 "subtitlesformat": "vtt",
                 "outtmpl": os.path.join(tmp_dir, "subtitle"),
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            })
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+            except Exception as e:
+                raise VideoDownloader._rewrite_error(url, e) from e
 
             vtt_files = [
                 f for f in os.listdir(tmp_dir) if f.endswith(".vtt")

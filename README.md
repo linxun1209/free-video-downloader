@@ -209,6 +209,7 @@ server: {
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook 验签密钥 |
 | `STRIPE_PRICE_ID_MONTHLY` | 月度会员价格 ID |
 | `FRONTEND_URL` | 支付成功/取消后的跳转地址 |
+| `YTDLP_COOKIEFILE` | 可选，指向服务端可读的 `cookies.txt`；抖音/部分 B 站视频解析或字幕提取失败时需要 |
 
 示例：
 
@@ -219,6 +220,7 @@ STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
 STRIPE_WEBHOOK_SECRET=whsec_your_webhook_signing_secret
 STRIPE_PRICE_ID_MONTHLY=price_your_monthly_price_id
 FRONTEND_URL=http://localhost:5173
+YTDLP_COOKIEFILE=/absolute/path/to/cookies.txt
 ```
 
 ## 核心接口
